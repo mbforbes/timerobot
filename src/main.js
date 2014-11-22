@@ -22,7 +22,7 @@ var BEES_X = 700;
 var BEES_W = 100;
 
 // globals
-var robot, plank, poison, cake, bees;
+var robot, inventory, plank, poison, cake, bees;
 var game = new Phaser.Game(
 	STAGE_WIDTH,
 	STAGE_HEIGHT,
@@ -62,6 +62,14 @@ var Inventory = function() {
 		Items.EMPTY,
 		Items.EMPTY,
 	];
+
+	// Visuals
+	this.viz_slots = Array(this.slots.length);
+	for (var i = 0; i < this.slots.length; i++) {
+		this.viz_slots[i] = new Phaser.Rectangle(i * 110 + 10, STAGE_HEIGHT - 110, 100, 100);
+	}
+
+	// this.bgs = [r1];
 };
 
 Inventory.prototype = {
@@ -153,9 +161,13 @@ function create() {
 	bees_scale = BEES_W / bees.width;
 	bees.scale.x = bees_scale;
 	bees.scale.y = bees_scale;
+
+	// Inventory
+	inventory = new Inventory();
 }
 
 function update() {
+	// Movement
     if (cursors.left.isDown) {
         robot.sprite.body.velocity.x = -ROBOT_SPEED;
         if (robot.facing != 'left') {
@@ -177,8 +189,19 @@ function update() {
 			robot.sprite.animations.frame = 3; // left
     	}
     }
+
+    // Acquiring objects
+
 }
 
 function render() {
-	// temp background stuff
+	// inventory
+	for (var i = 0; i < inventory.viz_slots.length; i++) {
+		game.debug.geom(inventory.viz_slots[i], 'rgba(244, 164, 96, 0.7)');
+	}
+
+	// var i;
+	// for (i = 0; i < inventory.bgs.length; i++) {
+		// game.debug.geom(inventory[i], 'rgba(255, 0, 0, 0.5)');
+	// }
 }
