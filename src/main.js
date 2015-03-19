@@ -10,7 +10,13 @@ var Y_GROUND = STAGE_HEIGHT - GROUND_HEIGHT;
 
 var ROBOT_WIDTH = 50;
 var ROBOT_HEIGHT = 54;
-var ROBOT_SPEED = 150;
+var ROBOT_SPEED = 350;
+
+var MILK_WIDTH = 50;
+var MILK_HEIGHT = 54;
+var NPC_SPEED = 150;
+
+var TOUCH_DELTA = 10;
 
 var PLANK_X = 100;
 var PLANK_W = 50;
@@ -22,7 +28,7 @@ var BEES_X = 700;
 var BEES_W = 100;
 
 // globals
-var robot, inventory, plank, poison, cake, bees;
+var robot, milkman, npcs, inventory, plank, poison, cake, bees, freeitems;
 var game = new Phaser.Game(
 	STAGE_WIDTH,
 	STAGE_HEIGHT,
@@ -42,6 +48,31 @@ var game = new Phaser.Game(
 var Robot = function() {
 	this.sprite = null;
 	this.facing = null;
+};
+
+// NPC
+var NPC = function() {
+	this.sprite = null;
+	this.facing = null;
+	// this.behavior = this.stroll;
+	this.state = {};
+};
+
+NPC.prototype = {
+	// prereq: set this.state.goal
+	behavior: function() {
+		if (this.state.goal === undefined ){
+			this.state.goal = new Phaser.Point(1000, 0);
+		}
+		if (this.sprite.x < this.state.goal.x) {
+			// move right
+			this.sprite.body.velocity.x = NPC_SPEED;
+			if (this.facing != 'right') {
+				this.sprite.animations.play('right');
+				this.facing = 'right';
+			}
+		}
+	}
 };
 
 // item types
@@ -66,10 +97,11 @@ var Inventory = function() {
 	// Visuals
 	this.viz_slots = Array(this.slots.length);
 	for (var i = 0; i < this.slots.length; i++) {
-		this.viz_slots[i] = new Phaser.Rectangle(i * 110 + 10, STAGE_HEIGHT - 110, 100, 100);
+		this.viz_slots[i] = game.add.sprite(110*i + 10, STAGE_HEIGHT - 110, 'box');
+		this.viz_slots[i].scale.x = 0.1111111;
+		this.viz_slots[i].scale.y = 0.1111111;
+		this.viz_slots[i].fixedToCamera = true;
 	}
-
-	// this.bgs = [r1];
 };
 
 Inventory.prototype = {
@@ -90,16 +122,23 @@ Inventory.prototype = {
 	},
 };
 
+var x_touching = function(s1, s2) {
+	return (s1.x >= s2.x && s1.x <= s2.x + s2.width) ||
+	(s1.x + s1.width >= s2.x && s1.x + s1.width <= s2.x + s2.width);
+};
+
 // Core game functions.
 
 function preload() {
 	game.load.spritesheet('robotsprite', 'assets/sprites/robot_ss.png', ROBOT_WIDTH, ROBOT_HEIGHT);
+	game.load.spritesheet('milkman', 'assets/sprites/milkman.png', MILK_WIDTH, MILK_HEIGHT);
 	game.load.image('background', 'assets/backgrounds/bare_stage.png');
 	game.load.image('rain', 'assets/sprites/rain.png');
 	game.load.image('plank', 'assets/sprites/plank_item.png');
 	game.load.image('cake', 'assets/sprites/cake_item.png');
 	game.load.image('bees', 'assets/sprites/bees_item.png');
 	game.load.image('poison', 'assets/sprites/poison_item.png');
+	game.load.image('box', 'assets/gui/inventory_box.png');
 }
 
 function create() {
@@ -121,13 +160,33 @@ function create() {
 	emitter.maxRotation = 0;
 	emitter.start(false, 1600, 5, 0);
 
+	// NPCs
+	milkman = new NPC();
+	milkman.sprite = game.add.sprite(0, Y_GROUND - MILK_HEIGHT, 'milkman');
+	milkman.sprite.animations.add('left', [3, 4, 3, 5], 10, true);
+	milkman.sprite.animations.add('right', [0, 1, 0, 2], 10, true);
+	milkman.sprite.animations.frame = 3; // default: left
+	// milkman.behavior = milkman.stroll;
+
+	npcs = [
+		milkman
+	];
+
 	// the robot
 	robot = new Robot();
-	robot.sprite = game.add.sprite(0, Y_GROUND - ROBOT_HEIGHT, 'robotsprite');
+	robot.sprite = game.add.sprite(0, Y_GROUND - 108, 'robotsprite');
+	// robot.sprite = game.add.sprite(0, Y_GROUND - ROBOT_HEIGHT, 'robotsprite');
 	robot.sprite.animations.add('left', [3, 4, 3, 5], 10, true);
 	robot.sprite.animations.add('right', [0, 1, 0, 2], 10, true);
+	robot.sprite.animations.frame = 3; // default: left
+	robot.sprite.scale.x = 2.0;
+	robot.sprite.scale.y = 2.0;
 
-	// physics
+
+	// physics TODO: change?
+	game.physics.enable(milkman.sprite, Phaser.Physics.ARCADE);
+	milkman.sprite.body.collideWorldBounds = true;
+
 	game.physics.enable(robot.sprite, Phaser.Physics.ARCADE);
 	robot.sprite.body.collideWorldBounds = true;
 
@@ -136,9 +195,6 @@ function create() {
 
 	// input
 	cursors = game.input.keyboard.createCursorKeys();
-
-	// defaults
-	robot.sprite.animations.frame = 3; // left
 
 	// place objects
 	plank = game.add.sprite(PLANK_X, Y_GROUND, 'plank');
@@ -162,11 +218,21 @@ function create() {
 	bees.scale.x = bees_scale;
 	bees.scale.y = bees_scale;
 
+	// Free items
+	freeitems = [
+		plank,
+		poison,
+		cake,
+		bees
+	];
+
 	// Inventory
 	inventory = new Inventory();
 }
 
 function update() {
+	var i;
+
 	// Movement
     if (cursors.left.isDown) {
         robot.sprite.body.velocity.x = -ROBOT_SPEED;
@@ -191,14 +257,23 @@ function update() {
     }
 
     // Acquiring objects
+    if (game.input.keyboard.isDown(Phaser.Keyboard.SPACEBAR)) {
+    	for (i = 0; i < freeitems.length; i++) {
+	    	if (x_touching(robot.sprite, freeitems[i]) && freeitems[i].alive) {
+	    		freeitems[i].kill();
+	    		break;
+	    	}
+	    }
+	}
 
+	// NPC updates
+	for (i = 0; i < npcs.length; i++) {
+		npcs[i].behavior();
+	}
 }
 
 function render() {
 	// inventory
-	for (var i = 0; i < inventory.viz_slots.length; i++) {
-		game.debug.geom(inventory.viz_slots[i], 'rgba(244, 164, 96, 0.7)');
-	}
 
 	// var i;
 	// for (i = 0; i < inventory.bgs.length; i++) {
